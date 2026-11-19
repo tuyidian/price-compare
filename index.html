@@ -84,6 +84,14 @@
   .tools { display: flex; gap: 8px; justify-content: center; margin-top: 22px; }
   .tools button { border: none; background: none; color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; }
   .modal-info { font-size: 15px; line-height: 1.9; color: var(--text); margin-bottom: 18px; white-space: pre-line; }
+
+  .ocr-box { border: 2px dashed #d8e0ea; border-radius: 14px; padding: 16px; text-align: center; cursor: pointer; background: #fbfcfe; }
+  .ocr-box:active { background: #f2f6fb; }
+  .ocr-box .icon { font-size: 30px; }
+  .ocr-box .t1 { font-size: 16px; font-weight: 700; margin-top: 6px; }
+  .ocr-box .t2 { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+  .ocr-status { font-size: 13px; color: var(--brand); margin-top: 8px; min-height: 18px; line-height: 1.6; }
+  .ocr-preview { display: none; margin-top: 10px; border-radius: 12px; max-height: 180px; width: 100%; object-fit: contain; background: #f3f6fa; }
 </style>
 </head>
 <body>
@@ -115,6 +123,16 @@
 <div class="mask" id="addMask">
   <div class="sheet">
     <h2 id="sheetTitle">添加商品</h2>
+    <div class="field">
+      <div class="ocr-box" onclick="document.getElementById('ocrFile').click()">
+        <div class="icon">📷</div>
+        <div class="t1">拍照 / 上传商品截图，自动识别</div>
+        <div class="t2">自动读取商品名称、价格和平台<br>识别后请核对一下再保存</div>
+      </div>
+      <input type="file" id="ocrFile" accept="image/*" onchange="doOCR(this)" style="display:none">
+      <img id="ocrPreview" class="ocr-preview" alt="预览">
+      <div class="ocr-status" id="ocrStatus"></div>
+    </div>
     <div class="field">
       <label>商品名称（同一商品请填完全相同的名称，才能自动对比）</label>
       <input id="fName" list="nameList" placeholder="例如：小米移动电源3 10000mAh">
@@ -260,6 +278,9 @@ function openAdd() {
   document.getElementById("sheetTitle").textContent = "添加商品";
   ["fName", "fPrice", "fTarget", "fNote", "fLink"].forEach(id => document.getElementById(id).value = "");
   document.getElementById("fPlat").value = "淘宝";
+  const prev = document.getElementById("ocrPreview");
+  prev.style.display = "none"; prev.src = "";
+  ocrStatus("");
   const dl = document.getElementById("nameList");
   dl.innerHTML = Object.keys(groups()).map(n => '<option value="' + esc(n) + '">').join("");
   document.getElementById("addMask").classList.add("show");
@@ -363,6 +384,123 @@ function importData(input) {
     input.value = "";
   };
   r.readAsText(f);
+}
+
+/* ---------------- 拍照识别（OCR） ---------------- */
+let tesseractLoading = null;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = resolve; s.onerror = () => reject(new Error("load error"));
+    document.head.appendChild(s);
+    setTimeout(() => reject(new Error("timeout")), 20000);
+  });
+}
+
+function ensureTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoading) return tesseractLoading;
+  const cdns = [
+    "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+    "https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js",
+    "https://cdn.staticfile.net/tesseract.js/5.1.1/tesseract.min.js",
+    "https://lib.baomitu.com/tesseract.js/5.1.1/tesseract.min.js"
+  ];
+  tesseractLoading = (async () => {
+    for (const url of cdns) {
+      try {
+        await loadScript(url);
+        if (window.Tesseract) return;
+      } catch (e) { /* 换下一个源 */ }
+    }
+    throw new Error("引擎加载失败");
+  })();
+  return tesseractLoading;
+}
+
+function ocrStatus(msg) { document.getElementById("ocrStatus").textContent = msg || ""; }
+
+async function doOCR(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const prev = document.getElementById("ocrPreview");
+  prev.src = URL.createObjectURL(file);
+  prev.style.display = "block";
+
+  try {
+    ocrStatus("正在加载文字识别引擎（首次约 10-30 秒）…");
+    await ensureTesseract();
+    ocrStatus("正在识别文字，请稍候…");
+    const res = await Tesseract.recognize(file, "chi_sim+eng", {
+      logger: m => {
+        if (m.status === "recognizing text") ocrStatus("识别中… " + Math.round((m.progress || 0) * 100) + "%");
+        else if (m.status === "loading language traineddata") ocrStatus("正在下载中文识别包（首次较慢）…");
+      }
+    });
+    const text = (res.data && res.data.text) || "";
+    if (!text.trim()) { ocrStatus("没识别到文字，可换个清晰点的截图，或手动填写"); return; }
+    const info = parseInfo(text);
+    applyInfo(info);
+    ocrStatus("识别完成，已自动填入下方表单，请核对后保存 ✅");
+  } catch (e) {
+    ocrStatus("识别引擎加载失败（可能网络受限）。可手动填写，或把截图发给我帮您识别。");
+  } finally {
+    input.value = "";
+  }
+}
+
+function parseInfo(raw) {
+  const lines = raw.split(/\n+/).map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const text = lines.join(" ");
+
+  // 1) 平台识别
+  const platMap = [
+    [/拼多多|拼夕夕|百亿补贴/, "拼多多"],
+    [/天猫|tmall/i, "天猫"],
+    [/淘宝|taobao/i, "淘宝"],
+    [/京东|jd\.com|自营/i, "京东"],
+    [/抖音|抖店|直播间/, "抖音"],
+    [/唯品会/, "唯品会"],
+    [/苏宁/, "苏宁"]
+  ];
+  let platform = "";
+  for (const [re, name] of platMap) { if (re.test(text)) { platform = name; break; } }
+
+  // 2) 价格识别：优先「到手价/券后/实付」，其次取所有价格里最小的合理值
+  let price = null;
+  const near = text.match(/(到手价|券后|实付|实付款|应付款|优惠后)[^0-9¥￥]{0,6}[¥￥]?\s*(\d+(?:\.\d{1,2})?)/);
+  if (near) price = parseFloat(near[2]);
+  if (!price) {
+    const all = [...text.matchAll(/[¥￥]\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*元/g)]
+      .map(m => parseFloat(m[1] || m[2]))
+      .filter(v => v > 0.5 && v < 100000);
+    if (all.length) price = Math.min(...all);
+  }
+
+  // 3) 商品名称：取长度适中、非纯数字/价格/按钮文案的行
+  const stop = /^(加入购物车|立即购买|领券|优惠券|分享|收藏|客服|店铺|评价|详情|参数|首页|购物车|我的|搜索|确认|提交订单| ¥|￥)/;
+  const cand = lines
+    .filter(l => l.length >= 6 && l.length <= 60)
+    .filter(l => !/^[\d\s.,¥￥元%+-]+$/.test(l))
+    .filter(l => !stop.test(l))
+    .filter(l => !/^(已售|月销|销量|好评|包邮|现货|预售)/.test(l));
+  // 优先包含品牌/规格特征词的行
+  let name = "";
+  const strong = cand.find(l => /[A-Za-z]{2,}|\d+\s*(mAh|G|GB|ml|L|寸|英寸|kg|g|件|片|袋|瓶)/i.test(l));
+  name = strong || cand[0] || "";
+
+  // 4) 规格备注：抓 mAh/GB/ml 等
+  const spec = text.match(/\d+\s*(mAh|GB|TB|ml|L|kg|g|寸|英寸|片|粒|袋|瓶|包)/i);
+  return { name, price, platform, spec: spec ? spec[0] : "" };
+}
+
+function applyInfo(info) {
+  if (info.name) document.getElementById("fName").value = info.name.slice(0, 60);
+  if (info.price) document.getElementById("fPrice").value = info.price;
+  if (info.platform) document.getElementById("fPlat").value = info.platform;
+  if (info.spec) document.getElementById("fNote").value = info.spec;
 }
 
 function toast(msg) {
