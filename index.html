@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多平台比价本 💰</title>
+<style>
+  :root {
+    --brand: #e94b35;
+    --brand-light: #fdeeea;
+    --text: #1f2733;
+    --muted: #7a8698;
+    --bg: #f5f7fa;
+    --card: #fff;
+    --green: #10a37f;
+    --line: #ebeff5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); padding-bottom: 90px; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 18px 14px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  h1 { font-size: 24px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+
+  .summary { display: flex; gap: 10px; margin-bottom: 16px; }
+  .sm { flex: 1; background: var(--card); border-radius: 14px; padding: 14px 12px; text-align: center; box-shadow: 0 1px 6px rgba(31,39,51,.06); }
+  .sm b { display: block; font-size: 22px; color: var(--brand); }
+  .sm span { font-size: 12px; color: var(--muted); }
+
+  .group { background: var(--card); border-radius: 16px; margin-bottom: 14px; box-shadow: 0 1px 6px rgba(31,39,51,.06); overflow: hidden; }
+  .group-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .group-head .name { font-size: 17px; font-weight: 700; }
+  .group-head .save { font-size: 13px; color: var(--green); font-weight: 600; }
+
+  .item { display: flex; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); gap: 10px; }
+  .item:last-child { border-bottom: none; }
+  .item.best { background: linear-gradient(90deg, #f0fbf7, #fff); }
+  .plat { font-size: 13px; padding: 4px 9px; border-radius: 8px; background: var(--bg); color: var(--muted); white-space: nowrap; }
+  .item.best .plat { background: var(--green); color: #fff; }
+  .price { font-size: 20px; font-weight: 700; margin-left: auto; }
+  .item.best .price { color: var(--green); }
+  .delta { font-size: 12px; color: var(--muted); width: 56px; text-align: right; }
+  .delta.up { color: var(--brand); }
+  .delta.down { color: var(--green); }
+  .ops { display: flex; gap: 4px; margin-left: 6px; }
+  .ops button { border: none; background: none; font-size: 16px; cursor: pointer; padding: 4px; opacity: .55; }
+  .ops button:active { opacity: 1; }
+  .badge-low { font-size: 11px; color: #fff; background: var(--green); padding: 2px 6px; border-radius: 6px; margin-left: 6px; }
+  .target-line { font-size: 12px; color: var(--muted); padding: 8px 16px 12px; background: #fcfdff; }
+  .target-line.hit { color: var(--brand); font-weight: 600; }
+
+  .empty { text-align: center; color: var(--muted); padding: 50px 20px; font-size: 15px; line-height: 1.9; }
+
+  .fab {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 22px;
+    background: var(--brand); color: #fff; border: none;
+    font-size: 18px; font-weight: 700; padding: 16px 34px; border-radius: 30px;
+    box-shadow: 0 6px 18px rgba(233,75,53,.4); cursor: pointer; z-index: 50;
+  }
+  .fab:active { transform: translateX(-50%) scale(.96); }
+
+  /* 弹层 */
+  .mask { position: fixed; inset: 0; background: rgba(20,30,45,.55); display: none; align-items: flex-end; z-index: 100; }
+  .mask.show { display: flex; }
+  .sheet { background: #fff; width: 100%; max-width: 520px; margin: 0 auto; border-radius: 20px 20px 0 0; padding: 20px 18px 26px; max-height: 88vh; overflow-y: auto; }
+  .sheet h2 { font-size: 19px; margin-bottom: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .field input, .field select, .field textarea {
+    width: 100%; font-size: 17px; padding: 13px 14px; border: 2px solid var(--line); border-radius: 12px;
+    background: #fcfdff; color: var(--text); font-family: inherit;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--brand); background: #fff; }
+  .row2 { display: flex; gap: 10px; }
+  .row2 > .field { flex: 1; }
+  .sheet-actions { display: flex; gap: 10px; margin-top: 6px; }
+  .btn { flex: 1; border: none; border-radius: 14px; font-size: 17px; font-weight: 700; padding: 15px 0; cursor: pointer; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-ghost { background: var(--bg); color: var(--muted); }
+
+  .toast { position: fixed; left: 50%; bottom: 100px; transform: translateX(-50%) translateY(16px); background: var(--text); color: #fff; font-size: 15px; padding: 11px 20px; border-radius: 22px; opacity: 0; pointer-events: none; transition: .3s; z-index: 200; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .tools { display: flex; gap: 8px; justify-content: center; margin-top: 22px; }
+  .tools button { border: none; background: none; color: var(--muted); font-size: 13px; text-decoration: underline; cursor: pointer; }
+  .modal-info { font-size: 15px; line-height: 1.9; color: var(--text); margin-bottom: 18px; white-space: pre-line; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💰 多平台比价本</h1>
+  </header>
+  <div class="sub">同一件商品，各平台价格一目了然</div>
+
+  <div class="summary">
+    <div class="sm"><b id="sGroups">0</b><span>在比商品</span></div>
+    <div class="sm"><b id="sSave">¥0</b><span>最多可省</span></div>
+    <div class="sm"><b id="sHits">0</b><span>达到目标价</span></div>
+  </div>
+
+  <div id="list"></div>
+
+  <div class="tools">
+    <button onclick="openAdd()">＋ 添加商品</button>
+    <button onclick="exportData()">导出备份</button>
+    <button onclick="document.getElementById('importFile').click()">导入备份</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(this)">
+  </div>
+</div>
+
+<button class="fab" onclick="openAdd()">＋ 添加比价</button>
+
+<!-- 添加/编辑弹层 -->
+<div class="mask" id="addMask">
+  <div class="sheet">
+    <h2 id="sheetTitle">添加商品</h2>
+    <div class="field">
+      <label>商品名称（同一商品请填完全相同的名称，才能自动对比）</label>
+      <input id="fName" list="nameList" placeholder="例如：小米移动电源3 10000mAh">
+      <datalist id="nameList"></datalist>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>平台</label>
+        <select id="fPlat">
+          <option>淘宝</option><option>天猫</option><option>京东</option>
+          <option>拼多多</option><option>抖音</option><option>唯品会</option>
+          <option>苏宁</option><option>线下店</option><option>其他</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>当前价格（元）</label>
+        <input id="fPrice" type="number" inputmode="decimal" step="0.01" placeholder="99.00">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>目标价（元，可选）</label>
+        <input id="fTarget" type="number" inputmode="decimal" step="0.01" placeholder="降到这个价提醒我">
+      </div>
+      <div class="field">
+        <label>备注（可选）</label>
+        <input id="fNote" placeholder="规格/店铺等">
+      </div>
+    </div>
+    <div class="field">
+      <label>商品链接（可选）</label>
+      <input id="fLink" placeholder="https://…">
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" onclick="closeAdd()">取消</button>
+      <button class="btn btn-primary" onclick="saveItem()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 提醒弹窗 -->
+<div class="mask" id="alertMask">
+  <div class="sheet">
+    <h2>🎉 有商品降到你想要的价格了</h2>
+    <div class="modal-info" id="alertInfo"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-primary" onclick="closeAlert()">知道了</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY = "price_compare_v1";
+let items = JSON.parse(localStorage.getItem(KEY) || "[]");
+let editingId = null;
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function save() { localStorage.setItem(KEY, JSON.stringify(items)); }
+function today() { return new Date().toISOString().slice(0, 10); }
+
+function groups() {
+  const map = {};
+  items.forEach(it => {
+    const k = it.name.trim();
+    (map[k] = map[k] || []).push(it);
+  });
+  return map;
+}
+
+function render() {
+  const g = groups();
+  const keys = Object.keys(g);
+  const list = document.getElementById("list");
+
+  // 汇总
+  let maxSave = 0, hits = 0;
+  keys.forEach(k => {
+    const arr = g[k].slice().sort((a, b) => a.price - b.price);
+    if (arr.length > 1) maxSave += arr[arr.length - 1].price - arr[0].price;
+    arr.forEach(it => { if (it.target && it.price <= it.target) hits++; });
+  });
+  document.getElementById("sGroups").textContent = keys.length;
+  document.getElementById("sSave").textContent = "¥" + Math.round(maxSave);
+  document.getElementById("sHits").textContent = hits;
+
+  if (keys.length === 0) {
+    list.innerHTML = '<div class="empty">还没有商品<br>点击下方「＋ 添加比价」开始<br><span style="font-size:13px">同一商品在不同平台各添加一次，就会自动对比出最低价</span></div>';
+    return;
+  }
+
+  list.innerHTML = "";
+  keys.sort().forEach(k => {
+    const arr = g[k].slice().sort((a, b) => a.price - b.price);
+    const low = arr[0].price, high = arr[arr.length - 1].price;
+    const diff = high - low;
+    const box = document.createElement("div");
+    box.className = "group";
+    box.innerHTML = '<div class="group-head"><div class="name">' + esc(k) + '</div>' +
+      (arr.length > 1 && diff > 0 ? '<div class="save">最低价比最高省 ¥' + diff.toFixed(2) + '</div>' : '') + '</div>';
+
+    arr.forEach((it, idx) => {
+      const hist = it.history || [];
+      let deltaHtml = '<div class="delta"></div>';
+      if (hist.length > 1) {
+        const prev = hist[hist.length - 2].price;
+        const d = it.price - prev;
+        if (Math.abs(d) > 0.004) {
+          deltaHtml = '<div class="delta ' + (d > 0 ? "up" : "down") + '">' + (d > 0 ? "↑" : "↓") + Math.abs(d).toFixed(1) + '</div>';
+        }
+      }
+      const row = document.createElement("div");
+      row.className = "item" + (idx === 0 ? " best" : "");
+      row.innerHTML =
+        '<span class="plat">' + esc(it.platform) + '</span>' +
+        '<span class="price">¥' + it.price.toFixed(2) + '</span>' +
+        (idx === 0 && arr.length > 1 ? '<span class="badge-low">最低</span>' : '') +
+        deltaHtml +
+        '<span class="ops">' +
+          '<button title="更新价格" onclick="editItem(\'' + it.id + '\')">✏️</button>' +
+          '<button title="删除" onclick="delItem(\'' + it.id + '\')">🗑</button>' +
+        '</span>';
+      box.appendChild(row);
+      if (it.target) {
+        const tl = document.createElement("div");
+        const hit = it.price <= it.target;
+        tl.className = "target-line" + (hit ? " hit" : "");
+        tl.textContent = hit
+          ? "🎯 已达目标价 ¥" + it.target.toFixed(2) + "，可以下手了"
+          : "🎯 目标价 ¥" + it.target.toFixed(2) + "，还差 ¥" + (it.price - it.target).toFixed(2);
+        box.appendChild(tl);
+      }
+    });
+    list.appendChild(box);
+  });
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function openAdd() {
+  editingId = null;
+  document.getElementById("sheetTitle").textContent = "添加商品";
+  ["fName", "fPrice", "fTarget", "fNote", "fLink"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("fPlat").value = "淘宝";
+  const dl = document.getElementById("nameList");
+  dl.innerHTML = Object.keys(groups()).map(n => '<option value="' + esc(n) + '">').join("");
+  document.getElementById("addMask").classList.add("show");
+}
+function closeAdd() { document.getElementById("addMask").classList.remove("show"); }
+
+function editItem(id) {
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  editingId = id;
+  document.getElementById("sheetTitle").textContent = "更新价格";
+  document.getElementById("fName").value = it.name;
+  document.getElementById("fPlat").value = it.platform;
+  document.getElementById("fPrice").value = it.price;
+  document.getElementById("fTarget").value = it.target || "";
+  document.getElementById("fNote").value = it.note || "";
+  document.getElementById("fLink").value = it.link || "";
+  document.getElementById("addMask").classList.add("show");
+}
+
+function saveItem() {
+  const name = document.getElementById("fName").value.trim();
+  const platform = document.getElementById("fPlat").value;
+  const price = parseFloat(document.getElementById("fPrice").value);
+  const target = parseFloat(document.getElementById("fTarget").value) || null;
+  const note = document.getElementById("fNote").value.trim();
+  const link = document.getElementById("fLink").value.trim();
+
+  if (!name) { toast("请填写商品名称"); return; }
+  if (!(price > 0)) { toast("请填写正确的价格"); return; }
+
+  if (editingId) {
+    const it = items.find(x => x.id === editingId);
+    if (it) {
+      if (Math.abs(it.price - price) > 0.004) {
+        it.history = it.history || [];
+        it.history.push({ date: today(), price: price });
+      }
+      it.name = name; it.platform = platform; it.price = price;
+      it.target = target; it.note = note; it.link = link;
+    }
+  } else {
+    const dup = items.find(x => x.name === name && x.platform === platform);
+    if (dup) {
+      if (Math.abs(dup.price - price) > 0.004) {
+        dup.history = dup.history || [];
+        dup.history.push({ date: today(), price: price });
+      }
+      dup.price = price; dup.target = target || dup.target; dup.note = note || dup.note; dup.link = link || dup.link;
+      toast("已更新该平台的记录");
+    } else {
+      items.push({ id: uid(), name, platform, price, target, note, link,
+        history: [{ date: today(), price: price }], updated: today() });
+    }
+  }
+  save(); render(); closeAdd(); checkTargets(true);
+}
+
+function delItem(id) {
+  const it = items.find(x => x.id === id);
+  if (!it) return;
+  if (!confirm("确定删除「" + it.name + " / " + it.platform + "」这条记录吗？")) return;
+  items = items.filter(x => x.id !== id);
+  save(); render(); toast("已删除");
+}
+
+function checkTargets(manual) {
+  const hits = items.filter(it => it.target && it.price <= it.target);
+  if (hits.length === 0) {
+    if (manual) toast("暂无商品达到目标价");
+    return;
+  }
+  document.getElementById("alertInfo").textContent = hits.map(it =>
+    "· " + it.name + "（" + it.platform + "）现在 ¥" + it.price.toFixed(2) + "，你设的目标价是 ¥" + it.target.toFixed(2)
+  ).join("\n");
+  document.getElementById("alertMask").classList.add("show");
+  if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300]); } catch (e) {} }
+}
+function closeAlert() { document.getElementById("alertMask").classList.remove("show"); }
+
+function exportData() {
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "比价本备份_" + today() + ".json";
+  a.click();
+  toast("已导出备份文件");
+}
+function importData(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const arr = JSON.parse(e.target.result);
+      if (!Array.isArray(arr)) throw 0;
+      if (!confirm("将合并导入 " + arr.length + " 条记录，确定吗？")) return;
+      arr.forEach(it => { if (!items.find(x => x.id === it.id)) items.push(it); });
+      save(); render(); toast("导入成功");
+    } catch (err) { toast("文件格式不正确"); }
+    input.value = "";
+  };
+  r.readAsText(f);
+}
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+render();
+setTimeout(() => checkTargets(false), 800);
+</script>
+</body>
+</html>
