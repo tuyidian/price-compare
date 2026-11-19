@@ -422,6 +422,29 @@ function ensureTesseract() {
 
 function ocrStatus(msg) { document.getElementById("ocrStatus").textContent = msg || ""; }
 
+// 裁掉截图顶部状态栏（时间/信号/电量）和底部横条，避免被误识别成商品信息
+async function cropImage(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const w = img.width, h = img.height;
+        const top = Math.round(h * 0.085);   // 裁掉顶部约 8.5%（状态栏）
+        const bottom = Math.round(h * 0.05); // 裁掉底部约 5%
+        const c = document.createElement("canvas");
+        c.width = w; c.height = Math.max(50, h - top - bottom);
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, top, w, h - top - bottom, 0, 0, w, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(b => resolve(b || file), "image/png");
+      } catch (e) { resolve(file); }
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+}
+
 async function doOCR(input) {
   const file = input.files && input.files[0];
   if (!file) return;
@@ -433,7 +456,8 @@ async function doOCR(input) {
     ocrStatus("正在加载文字识别引擎（首次约 10-30 秒）…");
     await ensureTesseract();
     ocrStatus("正在识别文字，请稍候…");
-    const res = await Tesseract.recognize(file, "chi_sim+eng", {
+    const cropped = await cropImage(file);
+    const res = await Tesseract.recognize(cropped, "chi_sim+eng", {
       logger: m => {
         if (m.status === "recognizing text") ocrStatus("识别中… " + Math.round((m.progress || 0) * 100) + "%");
         else if (m.status === "loading language traineddata") ocrStatus("正在下载中文识别包（首次较慢）…");
@@ -468,7 +492,7 @@ function parseInfo(raw) {
   let platform = "";
   for (const [re, name] of platMap) { if (re.test(text)) { platform = name; break; } }
 
-  // 2) 价格识别：优先「到手价/券后/实付」，其次取所有价格里最小的合理值
+  // 2) 价格识别：优先「到手价/券后/实付」，其次带 ¥/元 的价格，最后整行只有一个数字的（价格角标）
   let price = null;
   const near = text.match(/(到手价|券后|实付|实付款|应付款|优惠后)[^0-9¥￥]{0,6}[¥￥]?\s*(\d+(?:\.\d{1,2})?)/);
   if (near) price = parseFloat(near[2]);
@@ -478,22 +502,38 @@ function parseInfo(raw) {
       .filter(v => v > 0.5 && v < 100000);
     if (all.length) price = Math.min(...all);
   }
+  if (!price) {
+    const bare = lines
+      .map(l => l.match(/^[¥￥]?\s*(\d+(?:\.\d{1,2})?)\s*$/))
+      .filter(Boolean)
+      .map(m => parseFloat(m[1]))
+      .filter(v => v >= 10 && v < 100000);
+    if (bare.length) price = Math.min(...bare);
+  }
 
-  // 3) 商品名称：取长度适中、非纯数字/价格/按钮文案的行
-  const stop = /^(加入购物车|立即购买|领券|优惠券|分享|收藏|客服|店铺|评价|详情|参数|首页|购物车|我的|搜索|确认|提交订单| ¥|￥)/;
+  // 3) 商品名称：只挑含中文的行，过滤状态栏杂讯（时间/信号/电量/按钮文案）
+  const junk = /^\d{1,2}[:：]\d{2}(\s|$)/;               // 19:25 这样的时间
+  const net = /\b(4g|5g|wifi|lte|volte)\b/i;             // 网络标识
+  const stop = /^(加入购物车|立即购买|领券|优惠券|分享|收藏|客服|店铺|评价|详情|参数|首页|购物车|我的|搜索|确认|提交订单|马上抢|去购买)/;
   const cand = lines
-    .filter(l => l.length >= 6 && l.length <= 60)
-    .filter(l => !/^[\d\s.,¥￥元%+-]+$/.test(l))
+    .filter(l => (l.match(/[\u4e00-\u9fff]/g) || []).length >= 4)   // 至少 4 个汉字
+    .filter(l => !junk.test(l))
     .filter(l => !stop.test(l))
-    .filter(l => !/^(已售|月销|销量|好评|包邮|现货|预售)/.test(l));
-  // 优先包含品牌/规格特征词的行
+    .filter(l => !/^(已售|月销|销量|好评|包邮|现货|预售)/.test(l))
+    .filter(l => (l.replace(/[^\u4e00-\u9fff a-zA-Z0-9.·]/g, "").length / l.length) > 0.5); // 中文+字母数字占比过半
+  // 取中文字符最多的一行（商品标题通常最长），相同则取靠前的
   let name = "";
-  const strong = cand.find(l => /[A-Za-z]{2,}|\d+\s*(mAh|G|GB|ml|L|寸|英寸|kg|g|件|片|袋|瓶)/i.test(l));
-  name = strong || cand[0] || "";
+  let bestScore = 0;
+  cand.forEach((l, i) => {
+    const cjk = (l.match(/[\u4e00-\u9fff]/g) || []).length;
+    const score = cjk + (/（|\(|无|款|型|代|装|充|板|器|机|车|衣|鞋|套|杯|锅|床|品/.test(l) ? 2 : 0) - i * 0.3;
+    if (score > bestScore) { bestScore = score; name = l; }
+  });
+  if (name) name = name.replace(/\s*(4g|5g|wifi)\s*$/i, "").trim().slice(0, 60);
 
-  // 4) 规格备注：抓 mAh/GB/ml 等
-  const spec = text.match(/\d+\s*(mAh|GB|TB|ml|L|kg|g|寸|英寸|片|粒|袋|瓶|包)/i);
-  return { name, price, platform, spec: spec ? spec[0] : "" };
+  // 4) 规格备注：抓常见规格词（严格区分大小写，避免把 4G 当成规格）
+  const spec = text.match(/(\d+\s*(mAh|GB|TB|寸|英寸|片|粒|袋|瓶|包|颗|ml|kg|L)(?![a-zA-Z])|(\d+)\s*天灵)/) || text.match(/\d+\s*(mAh|GB|TB|寸|英寸|kg|ml)/);
+  return { name, price, platform, spec: spec ? spec[0].trim() : "" };
 }
 
 function applyInfo(info) {
